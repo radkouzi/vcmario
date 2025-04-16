@@ -1,0 +1,401 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row =>
+                    row.some(cell => cell !== '' && cell !== null && cell !== undefined)
+                );
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mario-Style Platformer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #87CEEB;
+        }
+        canvas {
+            border: 2px solid black;
+        }
+    </style>
+</head>
+<body>
+    <script>
+        let player;
+        let platforms = [];
+        let enemies = [];
+        let coins = [];
+        let mushrooms = [];
+        let gravity = 0.5;
+        let jumpForce = -12;
+        let isJumping = false;
+        let cameraX = 0;
+        let worldWidth = 2000; // Expanded world width
+        let gameOver = false;
+        let coinCount = 0; // Track collected coins
+
+        function setup() {
+            createCanvas(1000, 800); // Larger canvas
+            player = new Player();
+            // Create ground
+            platforms.push(new Platform(0, height - 40, worldWidth, 40));
+            // Create additional platforms, ensuring all are reachable
+            platforms.push(new Platform(200, 650, 200, 20));
+            platforms.push(new Platform(500, 550, 200, 20));
+            platforms.push(new Platform(800, 450, 200, 20));
+            platforms.push(new Platform(1100, 550, 200, 20));
+            platforms.push(new Platform(1400, 650, 200, 20));
+            platforms.push(new Platform(1700, 550, 200, 20));
+            platforms.push(new Platform(300, 550, 200, 20));
+            platforms.push(new Platform(1000, 450, 200, 20));
+            platforms.push(new Platform(1600, 450, 200, 20));
+            // Create enemies (Goomba-like)
+            enemies.push(new Enemy(250, 650 - 30, 200, 300));
+            enemies.push(new Enemy(550, 550 - 30, 500, 600));
+            enemies.push(new Enemy(1150, 550 - 30, 1100, 1200));
+            enemies.push(new Enemy(1450, 650 - 30, 1400, 1500));
+            // Create coins
+            coins.push(new Coin(250, 600));
+            coins.push(new Coin(550, 500));
+            coins.push(new Coin(850, 400));
+            coins.push(new Coin(1150, 500));
+            coins.push(new Coin(1450, 600));
+            coins.push(new Coin(1750, 500));
+            coins.push(new Coin(350, 500));
+            coins.push(new Coin(1050, 400));
+            coins.push(new Coin(1650, 400));
+            // Create mushrooms
+            mushrooms.push(new Mushroom(850, 450 - 30));
+            mushrooms.push(new Mushroom(1050, 450 - 30));
+        }
+
+        function draw() {
+            if (gameOver) {
+                background(0);
+                fill(255);
+                textSize(32);
+                textAlign(CENTER);
+                text("Game Over! Press R to Restart", width / 2, height / 2);
+                text("Coins: " + coinCount, width / 2, height / 2 + 50);
+                return;
+            }
+
+            background(135, 206, 235); // Sky blue background
+            player.hasCollidedThisFrame = false; // Reset collision flag each frame
+            player.update();
+
+            // Camera follows player
+            cameraX = -player.x + width / 2;
+            if (cameraX > 0) cameraX = 0; // Don't show left of world
+            if (cameraX < -worldWidth + width) cameraX = -worldWidth + width; // Don't show right of world
+
+            push();
+            translate(cameraX, 0);
+            player.show();
+            for (let platform of platforms) {
+                platform.show();
+            }
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                enemies[i].update();
+                enemies[i].show();
+                if (!player.hasCollidedThisFrame && enemies[i].checkCollision()) {
+                    player.hasCollidedThisFrame = true; // Prevent further collisions this frame
+                    if (enemies[i].defeatedByPlayer()) {
+                        enemies.splice(i, 1); // Remove defeated enemy
+                        break; // Stop checking other enemies this frame
+                    } else {
+                        if (player.isPoweredUp) {
+                            player.shrink(); // Revert to normal size
+                            break; // Stop checking other enemies this frame
+                        } else {
+                            gameOver = true; // Player hit enemy without power-up
+                            break; // Stop checking other enemies this frame
+                        }
+                    }
+                }
+            }
+            for (let i = coins.length - 1; i >= 0; i--) {
+                coins[i].show();
+                if (coins[i].checkCollision()) {
+                    coins.splice(i, 1); // Remove collected coin
+                    coinCount++; // Increment coin counter
+                }
+            }
+            for (let i = mushrooms.length - 1; i >= 0; i--) {
+                mushrooms[i].show();
+                if (mushrooms[i].checkCollision()) {
+                    mushrooms.splice(i, 1); // Remove collected mushroom
+                    player.grow(); // Apply power-up
+                }
+            }
+            pop();
+
+            // Display coin count and power-up status
+            fill(255);
+            textSize(20);
+            textAlign(LEFT);
+            text("Coins: " + coinCount, 10, 30);
+            text("Power: " + (player.isPoweredUp ? "Big" : "Small"), 10, 60);
+        }
+
+        function keyPressed() {
+            if (key === ' ' && !isJumping && !gameOver) {
+                player.jump();
+            }
+            if (key === 'r' && gameOver) {
+                // Reset game
+                gameOver = false;
+                coinCount = 0; // Reset coin count
+                player = new Player();
+                enemies = [];
+                enemies.push(new Enemy(250, 650 - 30, 200, 300));
+                enemies.push(new Enemy(550, 550 - 30, 500, 600));
+                enemies.push(new Enemy(1150, 550 - 30, 1100, 1200));
+                enemies.push(new Enemy(1450, 650 - 30, 1400, 1500));
+                coins = [];
+                coins.push(new Coin(250, 600));
+                coins.push(new Coin(550, 500));
+                coins.push(new Coin(850, 400));
+                coins.push(new Coin(1150, 500));
+                coins.push(new Coin(1450, 600));
+                coins.push(new Coin(1750, 500));
+                coins.push(new Coin(350, 500));
+                coins.push(new Coin(1050, 400));
+                coins.push(new Coin(1650, 400));
+                mushrooms = [];
+                mushrooms.push(new Mushroom(850, 450 - 30));
+                mushrooms.push(new Mushroom(1050, 450 - 30));
+            }
+        }
+
+        class Player {
+            constructor() {
+                this.x = 100;
+                this.y = height - 80;
+                this.w = 30;
+                this.h = 40;
+                this.vx = 0;
+                this.vy = 0;
+                this.speed = 5;
+                this.isPoweredUp = false; // Track power-up state
+                this.hasCollidedThisFrame = false; // Track if collided with enemy this frame
+            }
+
+            update() {
+                // Horizontal movement
+                if (keyIsDown(LEFT_ARROW)) {
+                    this.vx = -this.speed;
+                } else if (keyIsDown(RIGHT_ARROW)) {
+                    this.vx = this.speed;
+                } else {
+                    this.vx = 0;
+                }
+
+                // Apply gravity
+                this.vy += gravity;
+                this.x += this.vx;
+                this.y += this.vy;
+
+                // Keep player in bounds
+                if (this.x < 0) this.x = 0;
+                if (this.x > worldWidth - this.w) this.x = worldWidth - this.w;
+
+                // Collision with platforms
+                for (let platform of platforms) {
+                    // Check for landing on top (moving downward)
+                    if (this.x + this.w > platform.x && this.x < platform.x + platform.w &&
+                        this.y + this.h > platform.y && this.y + this.h < platform.y + platform.h &&
+                        this.vy > 0) {
+                        this.y = platform.y - this.h;
+                        this.vy = 0;
+                        isJumping = false;
+                    }
+                    // Check for hitting bottom (moving upward)
+                    if (this.x + this.w > platform.x && this.x < platform.x + platform.w &&
+                        this.y < platform.y + platform.h && this.y > platform.y &&
+                        this.vy < 0) {
+                        this.y = platform.y + platform.h;
+                        this.vy = 0;
+                    }
+                }
+
+                // Check if player is on ground
+                if (this.y >= height - this.h - 40) {
+                    this.y = height - this.h - 40;
+                    this.vy = 0;
+                    isJumping = false;
+                }
+            }
+
+            jump() {
+                this.vy = jumpForce;
+                isJumping = true;
+            }
+
+            grow() {
+                if (!this.isPoweredUp) {
+                    this.w = 40; // Increase width
+                    this.h = 60; // Increase height
+                    this.y -= 20; // Adjust y to stay on platform
+                    this.isPoweredUp = true;
+                }
+            }
+
+            shrink() {
+                this.w = 30; // Revert to original width
+                this.h = 40; // Revert to original height
+                this.y += 20; // Adjust y to align with ground
+                this.isPoweredUp = false;
+            }
+
+            show() {
+                fill(255, 0, 0); // Red player (Mario-like)
+                rect(this.x, this.y, this.w, this.h);
+            }
+        }
+
+        class Platform {
+            constructor(x, y, w, h) {
+                this.x = x;
+                this.y = y;
+                this.w = w;
+                this.h = h;
+            }
+
+            show() {
+                fill(0, 128, 0); // Green platforms
+                rect(this.x, this.y, this.w, this.h);
+            }
+        }
+
+        class Enemy {
+            constructor(x, y, minX, maxX) {
+                this.x = x;
+                this.y = y;
+                this.w = 30;
+                this.h = 30;
+                this.vx = -2; // Move left initially
+                this.minX = minX;
+                this.maxX = maxX;
+            }
+
+            update() {
+                this.x += this.vx;
+                // Reverse direction at boundaries
+                if (this.x <= this.minX) {
+                    this.x = this.minX;
+                    this.vx = 2;
+                } else if (this.x >= this.maxX - this.w) {
+                    this.x = this.maxX - this.w;
+                    this.vx = -2;
+                }
+
+                // Apply gravity
+                this.y += gravity;
+                // Collision with platforms
+                for (let platform of platforms) {
+                    if (this.x + this.w > platform.x && this.x < platform.x + platform.w &&
+                        this.y + this.h > platform.y && this.y + this.h < platform.y + platform.h) {
+                        this.y = platform.y - this.h;
+                    }
+                }
+            }
+
+            checkCollision() {
+                // Check if player collides with enemy
+                return (player.x + player.w > this.x &&
+                        player.x < this.x + this.w &&
+                        player.y + player.h > this.y &&
+                        player.y < this.y + this.h);
+            }
+
+            defeatedByPlayer() {
+                // Player defeats enemy if landing on top
+                if (player.y + player.h <= this.y + 10 && player.vy > 0) {
+                    player.vy = -5; // Small bounce on defeat
+                    return true;
+                }
+                return false;
+            }
+
+            show() {
+                fill(139, 69, 19); // Brown enemy (Goomba-like)
+                rect(this.x, this.y, this.w, this.h);
+            }
+        }
+
+        class Coin {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.w = 20;
+                this.h = 20;
+            }
+
+            checkCollision() {
+                // Check if player collides with coin
+                return (player.x + player.w > this.x &&
+                        player.x < this.x + this.w &&
+                        player.y + player.h > this.y &&
+                        player.y < this.y + this.h);
+            }
+
+            show() {
+                fill(255, 215, 0); // Yellow coin
+                ellipse(this.x + this.w / 2, this.y + this.h / 2, this.w, this.h);
+            }
+        }
+
+        class Mushroom {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.w = 30;
+                this.h = 30;
+            }
+
+            checkCollision() {
+                // Check if player collides with mushroom
+                return (player.x + player.w > this.x &&
+                        player.x < this.x + this.w &&
+                        player.y + player.h > this.y &&
+                        player.y < this.y + this.h);
+            }
+
+            show() {
+                fill(255, 0, 0); // Red mushroom
+                rect(this.x, this.y, this.w, this.h); // Using rect for simplicity
+            }
+        }
+    </script>
+</body>
+</html>
